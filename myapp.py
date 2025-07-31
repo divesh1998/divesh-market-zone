@@ -23,10 +23,21 @@ period = timeframes[tf]
 # --- Fetch Data ---
 df = yf.download(tickers=symbol, interval=tf, period=period, progress=False, auto_adjust=True)
 
+if df.empty:
+    st.error("❌ Data not loaded. Please try a different timeframe or symbol.")
+    st.stop()
+
+df.index = df.index.tz_localize(None)
+
+# --- Moving Average ---
+if len(df) >= 20:
+    df["MA"] = df["Close"].rolling(window=20).mean()
+else:
+    df["MA"] = None
+
 # --- Trend Detection ---
 def detect_trend(df):
-    df["MA"] = df["Close"].rolling(window=20).mean()
-    if df["MA"].isna().iloc[-1]:
+    if "MA" not in df.columns or df["MA"].isna().iloc[-1]:
         return "No Trend"
     last_close = df["Close"].iloc[-1].item()
     last_ma = df["MA"].iloc[-1].item()
@@ -48,11 +59,47 @@ if wave1_high > 0 and current_price > wave1_high:
     breakout_status = "Wave 1 Breakout → Wave 3 Entry ✅"
 
 # --- Plot Chart ---
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Price"))
-fig.add_trace(go.Scatter(x=df.index, y=df["MA"], mode="lines", name="Moving Avg"))
-fig.update_layout(title=f"{symbol} Chart ({tf})", xaxis_title="Time", yaxis_title="Price")
-st.plotly_chart(fig, use_container_width=True)
+if len(df) > 1:
+    fig = go.Figure()
+
+    # Candlestick chart
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        name="Candles"
+    ))
+
+    # Moving Average
+    if "MA" in df.columns and df["MA"].notna().any():
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["MA"],
+            mode="lines", name="Moving Avg",
+            line=dict(color="orange", width=2)
+        ))
+
+    # Wave 1 High Line
+    if wave1_high > 0:
+        fig.add_trace(go.Scatter(
+            x=[df.index[0], df.index[-1]],
+            y=[wave1_high, wave1_high],
+            mode="lines",
+            name="Wave 1 High",
+            line=dict(color="blue", dash="dash")
+        ))
+
+    fig.update_layout(
+        title=f"{symbol} Chart ({tf}) | Live Price: {current_price:.2f}",
+        xaxis_title="Time",
+        yaxis_title="Price",
+        xaxis_rangeslider_visible=False,
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Not enough data to plot the chart.")
 
 # --- Trade Input ---
 st.subheader("📝 Trade Details")
