@@ -73,7 +73,8 @@ if uploaded_image:
     if not os.path.exists("saved_charts"):
         os.makedirs("saved_charts")
 
-    image_path = f"saved_charts/chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    image_path = f"saved_charts/chart_{timestamp}.png"
     image.save(image_path)
 
 # --- Trade Input ---
