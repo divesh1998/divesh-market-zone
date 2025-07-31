@@ -64,7 +64,7 @@ st.plotly_chart(fig, use_container_width=True)
 # --- Upload Chart Image ---
 st.header("📤 Upload Chart Image")
 uploaded_image = st.file_uploader("Upload chart image (PNG/JPG)", type=["png", "jpg", "jpeg"])
-image_path = None  # Store image path to save in CSV
+image_path = None
 
 if uploaded_image:
     image = Image.open(uploaded_image)
