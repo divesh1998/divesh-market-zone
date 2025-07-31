@@ -34,13 +34,14 @@ else:
 symbol = st.selectbox("Select Asset", ["BTC-USD", "GC=F"])
 df = yf.download(symbol, period="5d", interval="1h")
 
-if df.empty:
-    st.error("❌ Failed to fetch data. Please try again later.")
+if df.empty or len(df) < 1:
+    st.error("❌ Failed to fetch sufficient data. Please try again later.")
 else:
+    latest_data = df.iloc[-1]
     support = df["Low"].min()
     resistance = df["High"].max()
-    close_price = df["Close"].iloc[-1]
-    open_price = df["Open"].iloc[-1]
+    close_price = latest_data["Close"]
+    open_price = latest_data["Open"]
 
     candle_type = "Bullish" if close_price > open_price else "Bearish"
     signal = "BUY" if candle_type == "Bullish" and abs(close_price - support) < 10 else \
