@@ -6,14 +6,14 @@ import os
 
 # Page setup
 st.set_page_config(page_title="Divesh Market Zone", layout="wide")
-st.title("Divesh Market Zone - BTC & Gold Analysis")
+st.title("📊 Divesh Market Zone - BTC & Gold Analysis")
 
-# Create folder for saving images
+# Create folder to save uploaded images
 UPLOAD_FOLDER = "saved_images"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Image upload section
-st.subheader("Upload Chart Image")
+st.subheader("🖼️ Upload Chart Image")
 uploaded_image = st.file_uploader("Upload a chart image (optional)", type=["jpg", "jpeg", "png"])
 if uploaded_image:
     img = Image.open(uploaded_image)
@@ -21,8 +21,8 @@ if uploaded_image:
     img.save(filename)
     st.image(filename, caption="Uploaded Chart", use_container_width=True)
 
-# Show all uploaded images (temporary)
-st.subheader("All Uploaded Images (temporary)")
+# Show all uploaded images
+st.subheader("🗂️ All Uploaded Images (Temporary View)")
 image_files = os.listdir(UPLOAD_FOLDER)
 if image_files:
     for fname in image_files:
@@ -30,32 +30,39 @@ if image_files:
 else:
     st.info("No images uploaded yet.")
 
-# Asset selection and data download
+# Asset selection and data fetch
+st.subheader("📈 Live Market Analysis")
 symbol = st.selectbox("Select Asset", ["BTC-USD", "GC=F"])
 df = yf.download(symbol, period="5d", interval="1h")
 
 if df.empty or len(df) < 1:
-    st.error("❌ Failed to fetch sufficient data. Please try again later.")
+    st.error("❌ Failed to fetch market data.")
 else:
-    latest_data = df.iloc[-1]
-    support = df["Low"].min()
-    resistance = df["High"].max()
-    close_price = latest_data["Close"]
-    open_price = latest_data["Open"]
+    # Extract values safely
+    support = float(df["Low"].min())
+    resistance = float(df["High"].max())
+    close_price = float(df["Close"].iloc[-1])
+    open_price = float(df["Open"].iloc[-1])
 
+    # Candle and signal logic
     candle_type = "Bullish" if close_price > open_price else "Bearish"
     signal = "BUY" if candle_type == "Bullish" and abs(close_price - support) < 10 else \
              "SELL" if candle_type == "Bearish" and abs(close_price - resistance) < 10 else \
              "NO TRADE ZONE"
 
+    # Show metrics and signal
     st.metric("Live Price", f"${close_price:.2f}")
-    st.write(f"Support: `{support:.2f}` | Resistance: `{resistance:.2f}` | Candle: `{candle_type}` | Signal: **{signal}**")
+    st.write(f"🟢 **Support:** `{support:.2f}`")
+    st.write(f"🔴 **Resistance:** `{resistance:.2f}`")
+    st.write(f"🕯️ **Candle Type:** `{candle_type}`")
+    st.write(f"📢 **Signal:** **{signal}**")
 
+    # Candlestick chart
     fig = go.Figure(data=[go.Candlestick(
         x=df.index,
         open=df["Open"], high=df["High"],
         low=df["Low"], close=df["Close"]
     )])
-    fig.add_hline(y=support, line_color="green")
-    fig.add_hline(y=resistance, line_color="red")
+    fig.add_hline(y=support, line_color="green", line_dash="dot", annotation_text="Support", annotation_position="bottom right")
+    fig.add_hline(y=resistance, line_color="red", line_dash="dot", annotation_text="Resistance", annotation_position="top right")
     st.plotly_chart(fig, use_container_width=True)
