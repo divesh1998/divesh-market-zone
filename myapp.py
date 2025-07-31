@@ -11,7 +11,7 @@ st.title("📈 Divesh Market Zone - BTC & Gold Analysis")
 st.header("📤 Upload Chart Image")
 uploaded_image = st.file_uploader("Upload a chart image (optional)", type=["jpg", "jpeg", "png"])
 if uploaded_image:
-    st.image(uploaded_image, caption="Uploaded Chart", use_column_width=True)
+    st.image(uploaded_image, caption="Uploaded Chart", use_container_width=True)  # ✅ fixed here
 
 # 📊 Live Market Analysis Section
 st.header("📊 Live Market Analysis")
