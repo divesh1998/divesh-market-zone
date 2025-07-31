@@ -1,44 +1,35 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import os
-from datetime import datetime
-from PIL import Image
 import plotly.graph_objs as go
+from datetime import datetime
+import os
+from PIL import Image
 
 # --- Page Setup ---
 st.set_page_config(page_title="Divesh Market Zone", layout="wide")
 st.title("📈 Divesh Market Zone")
-st.markdown("Live BTC/Gold Analysis + Support/Resistance + SL/TP + Elliott Wave + Trade Save")
 
-# --- User Inputs ---
-symbol = st.selectbox("Choose Symbol", ["BTC-USD", "XAUUSD=X"])
-interval = st.selectbox("Interval", ["1h"])
-period = st.selectbox("Period", ["1d"])
+# --- Folder Setup ---
+os.makedirs("saved_charts", exist_ok=True)
 
-# --- Download Data ---
-df = yf.download(tickers=symbol, interval=interval, period=period, progress=False)
-if df.empty:
-    st.error("❌ Data could not be loaded.")
-    st.stop()
-df.reset_index(inplace=True)
+# --- Sidebar Selection ---
+st.sidebar.header("🔎 Select Symbol & Timeframe")
+symbol = st.sidebar.selectbox("Select Symbol", ["BTC-USD", "GC=F"], index=0)
+timeframes = {"1h": "1d", "15m": "5d", "5m": "1d"}
+tf = st.sidebar.selectbox("Select Timeframe", list(timeframes.keys()), index=0)
+period = timeframes[tf]
 
-# --- Live Price ---
-latest_price = float(df['Close'].iloc[-1])
-st.markdown(f"💰 **Live Price ({symbol}):** ${latest_price:.2f}")
-
-# --- Support & Resistance ---
-support = float(df['Low'].min())
-resistance = float(df['High'].max())
-st.markdown(f"📉 **Support:** {support:.2f} | 📈 **Resistance:** {resistance:.2f}")
+# --- Fetch Data ---
+df = yf.download(tickers=symbol, interval=tf, period=period, progress=False, auto_adjust=True)
 
 # --- Trend Detection ---
-def detect_trend(data):
-    data['MA20'] = data['Close'].rolling(window=20).mean()
-    if len(data) < 20 or pd.isna(data['MA20'].iloc[-1]):
-        return "No trend"
-    last_close = data['Close'].iloc[-1]
-    last_ma = data['MA20'].iloc[-1]
+def detect_trend(df):
+    df["MA"] = df["Close"].rolling(window=20).mean()
+    if df["MA"].isna().iloc[-1]:
+        return "No Trend"
+    last_close = df["Close"].iloc[-1].item()
+    last_ma = df["MA"].iloc[-1].item()
     if last_close > last_ma:
         return "Uptrend"
     elif last_close < last_ma:
@@ -47,76 +38,92 @@ def detect_trend(data):
         return "Sideways"
 
 trend = detect_trend(df)
-st.markdown(f"📊 **Trend:** {trend}")
+signal = "Buy Signal 📈" if trend == "Uptrend" else "Sell Signal 📉" if trend == "Downtrend" else "No Trade"
 
-# --- Plot Candlestick Chart ---
-fig = go.Figure(data=[go.Candlestick(
-    x=df['Datetime'] if 'Datetime' in df.columns else df['Date'],
-    open=df['Open'],
-    high=df['High'],
-    low=df['Low'],
-    close=df['Close']
-)])
-fig.update_layout(title=f"{symbol} Candlestick Chart", xaxis_title="Time", yaxis_title="Price", height=500)
+# --- Elliott Wave Breakout ---
+wave1_high = st.sidebar.number_input("Wave 1 High Price", value=0.0)
+current_price = df["Close"].iloc[-1].item()
+breakout_status = "Not Breaking Wave 1 High"
+if wave1_high > 0 and current_price > wave1_high:
+    breakout_status = "Wave 1 Breakout → Wave 3 Entry ✅"
+
+# --- Plot Chart ---
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Price"))
+fig.add_trace(go.Scatter(x=df.index, y=df["MA"], mode="lines", name="Moving Avg"))
+fig.update_layout(title=f"{symbol} Chart ({tf})", xaxis_title="Time", yaxis_title="Price")
 st.plotly_chart(fig, use_container_width=True)
 
-# --- Upload Chart Image ---
-st.header("📤 Upload Chart Image")
-uploaded_image = st.file_uploader("Upload chart image (PNG/JPG)", type=["png", "jpg", "jpeg"])
-image_path = ""
-
-if uploaded_image:
-    image = Image.open(uploaded_image)
-    st.image(image, caption="Uploaded Chart", use_container_width=True)
-
-    if not os.path.exists("saved_charts"):
-        os.makedirs("saved_charts")
-
-    image_path = f"saved_charts/chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-    image.save(image_path)
-
 # --- Trade Input ---
-st.header("📝 Trade Entry")
-trade_reason = st.text_area("Enter reason for trade", "")
+st.subheader("📝 Trade Details")
 sl = st.text_input("Stop Loss (SL)")
 tp = st.text_input("Take Profit (TP)")
+reason = st.text_area("Reason for Trade")
 
-# --- Save Trade ---
+# --- Signal Output ---
+st.success(f"Trend: {trend}")
+st.info(f"Signal: {signal}")
+st.warning(f"Elliott Wave Status: {breakout_status}")
+
+# --- Export Chart ---
+if st.button("📸 Export Chart as Image"):
+    try:
+        fig.write_image("exported_chart.png")
+        st.image("exported_chart.png", caption="Exported Chart")
+    except Exception as e:
+        st.error("Image export failed. Install kaleido:\n`pip install -U kaleido`")
+
+# --- Upload Chart Image ---
+st.subheader("📤 Upload Chart Image")
+uploaded_file = st.file_uploader("Upload Chart Image (PNG/JPG)", type=["png", "jpg", "jpeg"])
+if uploaded_file:
+    image_path = os.path.join("saved_charts", uploaded_file.name)
+    with open(image_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    st.success("✅ Image Saved")
+    st.image(image_path)
+
+# --- Save Trade Info ---
 if st.button("💾 Save Trade"):
-    if trade_reason.strip() == "":
-        st.warning("⚠️ Please enter trade reason.")
-    else:
-        time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        filename = "saved_trades.csv"
-        new_entry = {
-            "Time": time_now,
-            "Symbol": symbol,
-            "Live Price": latest_price,
-            "Support": support,
-            "Resistance": resistance,
-            "Trend": trend,
-            "SL": sl,
-            "TP": tp,
-            "Reason": trade_reason,
-            "Chart Path": image_path
-        }
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    text_filename = f"saved_charts/trade_{timestamp}.txt"
+    with open(text_filename, "w", encoding="utf-8") as f:
+        f.write(f"Symbol: {symbol}\n")
+        f.write(f"Timeframe: {tf}\n")
+        f.write(f"Trend: {trend}\n")
+        f.write(f"Signal: {signal}\n")
+        f.write(f"Wave Status: {breakout_status}\n")
+        f.write(f"SL: {sl}\nTP: {tp}\nReason: {reason}\n")
+    st.success("📝 Trade Info Saved")
 
-        if os.path.exists(filename):
-            df_existing = pd.read_csv(filename)
-            df_new = pd.DataFrame([new_entry])
-            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-            df_combined.to_csv(filename, index=False)
-        else:
-            pd.DataFrame([new_entry]).to_csv(filename, index=False)
+# --- Show Uploaded Images + Delete Option ---
+st.subheader("🖼️ Saved Uploaded Images")
+image_files = [f for f in os.listdir("saved_charts") if f.endswith((".png", ".jpg", ".jpeg"))]
+if image_files:
+    for img in image_files:
+        img_path = os.path.join("saved_charts", img)
+        with st.expander(f"🖼️ {img}"):
+            st.image(img_path, width=300)
+            if st.button(f"🗑️ Delete {img}", key=img):
+                os.remove(img_path)
+                st.warning(f"{img} deleted.")
+                st.experimental_rerun()
+else:
+    st.info("No uploaded images yet.")
 
-        st.success("✅ Trade saved successfully!")
-
-# --- Show Saved Trades ---
-if os.path.exists("saved_trades.csv"):
-    st.subheader("📁 Saved Trade History")
-    saved_df = pd.read_csv("saved_trades.csv")
-    st.dataframe(saved_df)
-
-    for _, row in saved_df.iterrows():
-        if row.get("Chart Path") and os.path.exists(row["Chart Path"]):
-            st.image(row["Chart Path"], caption=f"Chart at {row['Time']}", use_container_width=True)
+# --- Show Trade Info Files + Delete Option ---
+st.subheader("🗂️ Saved Trade Info Files")
+text_files = [f for f in os.listdir("saved_charts") if f.endswith(".txt")]
+if text_files:
+    for txt_file in text_files:
+        file_path = os.path.join("saved_charts", txt_file)
+        with st.expander(f"📄 {txt_file}"):
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                st.code(content, language="text")
+            if st.button(f"🗑️ Delete {txt_file}", key=txt_file):
+                os.remove(file_path)
+                st.warning(f"{txt_file} deleted.")
+                st.experimental_rerun()
+else:
+    st.info("No saved trade info files.")
