@@ -21,7 +21,6 @@ df = yf.download(tickers=symbol, interval=interval, period=period, progress=Fals
 if df.empty:
     st.error("❌ Data could not be loaded.")
     st.stop()
-
 df.reset_index(inplace=True)
 
 # --- Live Price ---
@@ -64,7 +63,7 @@ st.plotly_chart(fig, use_container_width=True)
 # --- Upload Chart Image ---
 st.header("📤 Upload Chart Image")
 uploaded_image = st.file_uploader("Upload chart image (PNG/JPG)", type=["png", "jpg", "jpeg"])
-image_path = None
+image_path = ""
 
 if uploaded_image:
     image = Image.open(uploaded_image)
@@ -73,8 +72,7 @@ if uploaded_image:
     if not os.path.exists("saved_charts"):
         os.makedirs("saved_charts")
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    image_path = f"saved_charts/chart_{timestamp}.png"
+    image_path = f"saved_charts/chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
     image.save(image_path)
 
 # --- Trade Input ---
@@ -100,7 +98,7 @@ if st.button("💾 Save Trade"):
             "SL": sl,
             "TP": tp,
             "Reason": trade_reason,
-            "Chart Path": image_path if image_path else ""
+            "Chart Path": image_path
         }
 
         if os.path.exists(filename):
