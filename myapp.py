@@ -1,176 +1,136 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objs as go
 from datetime import datetime
-import os
 from PIL import Image
+import os
+import plotly.graph_objs as go
 
 # --- Page Setup ---
-st.set_page_config(page_title="Divesh Market Zone", layout="wide")
-st.title("📈 Divesh Market Zone")
+st.set_page_config(page_title="📈 Divesh Market Zone", layout="wide")
+st.title("💹 Divesh Market Zone")
+st.markdown("**Live BTC/Gold Chart + Signal + Support/Resistance + Elliott Wave + SL/TP + Trade Save**")
 
-# --- Folder Setup ---
-os.makedirs("saved_charts", exist_ok=True)
+# --- Select Symbol & Timeframe ---
+col1, col2 = st.columns(2)
+with col1:
+    symbol = st.selectbox("📊 Select Symbol", ["BTC-USD", "GC=F"], index=0)
+with col2:
+    interval = st.selectbox("⏱️ Timeframe", ["1h", "15m", "5m"])
 
-# --- Sidebar Selection ---
-st.sidebar.header("🔎 Select Symbol & Timeframe")
-symbol = st.sidebar.selectbox("Select Symbol", ["BTC-USD", "GC=F"], index=0)
-timeframes = {"1h": "1d", "15m": "5d", "5m": "1d"}
-tf = st.sidebar.selectbox("Select Timeframe", list(timeframes.keys()), index=0)
-period = timeframes[tf]
+period = "5d"
 
-# --- Fetch Data ---
-df = yf.download(tickers=symbol, interval=tf, period=period, progress=False, auto_adjust=True)
-
-if df.empty:
-    st.error("❌ Data not loaded. Please try a different timeframe or symbol.")
+# --- Download Live Data ---
+df = yf.download(symbol, interval=interval, period=period)
+if df.empty or len(df) < 2:
+    st.warning("⚠️ Not enough data to display chart.")
     st.stop()
 
-df.index = df.index.tz_localize(None)
+# --- Show Interactive Chart ---
+st.subheader("🕹️ Price Chart")
+fig = go.Figure(data=[go.Candlestick(
+    x=df.index,
+    open=df['Open'],
+    high=df['High'],
+    low=df['Low'],
+    close=df['Close'],
+    name="Candles"
+)])
+fig.update_layout(
+    xaxis_title="Time",
+    yaxis_title="Price",
+    xaxis_rangeslider_visible=False,
+    template="plotly_dark",
+    height=500
+)
+st.plotly_chart(fig, use_container_width=True)
 
-# --- Moving Average ---
-if len(df) >= 20:
-    df["MA"] = df["Close"].rolling(window=20).mean()
-else:
-    df["MA"] = None
-
-# --- Trend Detection ---
+# --- Detect Trend ---
 def detect_trend(df):
-    if "MA" not in df.columns or df["MA"].isna().iloc[-1]:
-        return "No Trend"
-    last_close = df["Close"].iloc[-1].item()
-    last_ma = df["MA"].iloc[-1].item()
-    if last_close > last_ma:
+    last = df["Close"].iloc[-1].item()
+    prev = df["Close"].iloc[-2].item()
+    if last > prev:
         return "Uptrend"
-    elif last_close < last_ma:
+    elif last < prev:
         return "Downtrend"
     else:
         return "Sideways"
 
 trend = detect_trend(df)
-signal = "Buy Signal 📈" if trend == "Uptrend" else "Sell Signal 📉" if trend == "Downtrend" else "No Trade"
+st.subheader(f"📉 Current Trend: `{trend}`")
+
+# --- Support/Resistance Calculation ---
+def calculate_sr(data):
+    support = round(data["Low"].rolling(20).min().iloc[-1], 2)
+    resistance = round(data["High"].rolling(20).max().iloc[-1], 2)
+    return support, resistance
+
+support, resistance = calculate_sr(df)
+st.write(f"🟢 **Support:** `{support}`")
+st.write(f"🔴 **Resistance:** `{resistance}`")
 
 # --- Elliott Wave Breakout ---
-wave1_high = st.sidebar.number_input("Wave 1 High Price", value=0.0)
-current_price = df["Close"].iloc[-1].item()
-breakout_status = "Not Breaking Wave 1 High"
-if wave1_high > 0 and current_price > wave1_high:
-    breakout_status = "Wave 1 Breakout → Wave 3 Entry ✅"
+wave1_high = st.number_input("🌊 Wave 1 High Price", value=0.0)
+signal = "No Signal"
+last_price = df["Close"].iloc[-1].item()
 
-# --- Plot Chart ---
-if len(df) > 1:
-    fig = go.Figure()
+if wave1_high > 0:
+    if trend == "Uptrend" and last_price > wave1_high:
+        signal = "📈 Buy Signal (Wave 3 Breakout)"
+    elif trend == "Downtrend" and last_price < wave1_high:
+        signal = "📉 Sell Signal (Wave 3 Breakdown)"
 
-    # Candlestick chart
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df["Open"],
-        high=df["High"],
-        low=df["Low"],
-        close=df["Close"],
-        name="Candles"
-    ))
+st.subheader(f"📍 Signal: `{signal}`")
 
-    # Moving Average
-    if "MA" in df.columns and df["MA"].notna().any():
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["MA"],
-            mode="lines", name="Moving Avg",
-            line=dict(color="orange", width=2)
-        ))
+# --- SL/TP Auto Calculation ---
+sl_auto = round(support if trend == "Uptrend" else resistance, 2)
+tp_auto = round(resistance if trend == "Uptrend" else support, 2)
 
-    # Wave 1 High Line
-    if wave1_high > 0:
-        fig.add_trace(go.Scatter(
-            x=[df.index[0], df.index[-1]],
-            y=[wave1_high, wave1_high],
-            mode="lines",
-            name="Wave 1 High",
-            line=dict(color="blue", dash="dash")
-        ))
+st.write(f"🛡️ **Auto SL:** `{sl_auto}`")
+st.write(f"🎯 **Auto TP:** `{tp_auto}`")
 
-    fig.update_layout(
-        title=f"{symbol} Chart ({tf}) | Live Price: {current_price:.2f}",
-        xaxis_title="Time",
-        yaxis_title="Price",
-        xaxis_rangeslider_visible=False,
-        template="plotly_dark"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("Not enough data to plot the chart.")
-
-# --- Trade Input ---
-st.subheader("📝 Trade Details")
-sl = st.text_input("Stop Loss (SL)")
-tp = st.text_input("Take Profit (TP)")
-reason = st.text_area("Reason for Trade")
-
-# --- Signal Output ---
-st.success(f"Trend: {trend}")
-st.info(f"Signal: {signal}")
-st.warning(f"Elliott Wave Status: {breakout_status}")
-
-# --- Export Chart ---
-if st.button("📸 Export Chart as Image"):
-    try:
-        fig.write_image("exported_chart.png")
-        st.image("exported_chart.png", caption="Exported Chart")
-    except Exception as e:
-        st.error("Image export failed. Install kaleido:\n`pip install -U kaleido`")
+# --- Trade Reason Input ---
+reason = st.text_area("📋 Trade Reason", placeholder="Enter your analysis or reason here...")
 
 # --- Upload Chart Image ---
-st.subheader("📤 Upload Chart Image")
-uploaded_file = st.file_uploader("Upload Chart Image (PNG/JPG)", type=["png", "jpg", "jpeg"])
-if uploaded_file:
-    image_path = os.path.join("saved_charts", uploaded_file.name)
-    with open(image_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.success("✅ Image Saved")
-    st.image(image_path)
+st.header("📤 Upload Chart Image")
+uploaded_image = st.file_uploader("Upload chart image (JPG/PNG)", type=["png", "jpg", "jpeg"])
+save_folder = "saved_charts"
+os.makedirs(save_folder, exist_ok=True)
 
-# --- Save Trade Info ---
+# --- Save Trade ---
 if st.button("💾 Save Trade"):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    text_filename = f"saved_charts/trade_{timestamp}.txt"
-    with open(text_filename, "w", encoding="utf-8") as f:
-        f.write(f"Symbol: {symbol}\n")
-        f.write(f"Timeframe: {tf}\n")
-        f.write(f"Trend: {trend}\n")
-        f.write(f"Signal: {signal}\n")
-        f.write(f"Wave Status: {breakout_status}\n")
-        f.write(f"SL: {sl}\nTP: {tp}\nReason: {reason}\n")
-    st.success("📝 Trade Info Saved")
+    if uploaded_image is not None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{symbol.replace('=', '').replace('-', '')}.png"
+        file_path = os.path.join(save_folder, filename)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_image.read())
 
-# --- Show Uploaded Images + Delete Option ---
-st.subheader("🖼️ Saved Uploaded Images")
-image_files = [f for f in os.listdir("saved_charts") if f.endswith((".png", ".jpg", ".jpeg"))]
-if image_files:
-    for img in image_files:
-        img_path = os.path.join("saved_charts", img)
-        with st.expander(f"🖼️ {img}"):
-            st.image(img_path, width=300)
-            if st.button(f"🗑️ Delete {img}", key=img):
-                os.remove(img_path)
-                st.warning(f"{img} deleted.")
-                st.experimental_rerun()
-else:
-    st.info("No uploaded images yet.")
+        # Save accompanying text
+        txt_path = file_path.replace(".png", ".txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(f"Signal: {signal}\n")
+            f.write(f"SL: {sl_auto}\n")
+            f.write(f"TP: {tp_auto}\n")
+            f.write(f"Reason: {reason}")
 
-# --- Show Trade Info Files + Delete Option ---
-st.subheader("🗂️ Saved Trade Info Files")
-text_files = [f for f in os.listdir("saved_charts") if f.endswith(".txt")]
-if text_files:
-    for txt_file in text_files:
-        file_path = os.path.join("saved_charts", txt_file)
-        with st.expander(f"📄 {txt_file}"):
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                st.code(content, language="text")
-            if st.button(f"🗑️ Delete {txt_file}", key=txt_file):
-                os.remove(file_path)
-                st.warning(f"{txt_file} deleted.")
-                st.experimental_rerun()
-else:
-    st.info("No saved trade info files.")
+        st.success("✅ Trade saved successfully!")
+    else:
+        st.warning("⚠️ Please upload a chart image first.")
+
+# --- Display Saved Trades ---
+st.header("🗂️ Saved Trades")
+image_files = [f for f in os.listdir(save_folder) if f.endswith(".png")]
+for i in image_files:
+    st.image(os.path.join(save_folder, i), width=400, caption=i)
+    txt_file = i.replace(".png", ".txt")
+    txt_path = os.path.join(save_folder, txt_file)
+    if os.path.exists(txt_path):
+        with open(txt_path, "r", encoding="utf-8") as f:
+            st.code(f.read())
+    if st.button(f"🗑️ Delete {i}"):
+        os.remove(os.path.join(save_folder, i))
+        if os.path.exists(txt_path):
+            os.remove(txt_path)
+        st.rerun()
