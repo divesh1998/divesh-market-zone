@@ -9,7 +9,6 @@ import plotly.graph_objs as go
 # --- Page Setup ---
 st.set_page_config(page_title="📈 Divesh Market Zone", layout="wide")
 st.title("💹 Divesh Market Zone")
-st.markdown("**Live BTC/Gold Chart + Signal + Support/Resistance + Elliott Wave + SL/TP + Trade Save**")
 
 # --- Select Symbol & Timeframe ---
 col1, col2 = st.columns(2)
@@ -26,6 +25,16 @@ if df.empty or len(df) < 2:
     st.warning("⚠️ Not enough data to display chart.")
     st.stop()
 
+# --- Show Live Market Price ---
+live_price = round(df["Close"].iloc[-1], 2)
+previous_price = round(df["Close"].iloc[-2], 2)
+change = live_price - previous_price
+percent_change = round((change / previous_price) * 100, 2)
+st.metric(label="📈 Live Market Price", value=f"${live_price}", delta=f"{percent_change}%")
+
+# --- Elliott Wave High Input ---
+wave1_high = st.number_input("🌊 Wave 1 High Price", value=0.0)
+
 # --- Show Interactive Chart ---
 st.subheader("🕹️ Price Chart")
 fig = go.Figure(data=[go.Candlestick(
@@ -36,6 +45,69 @@ fig = go.Figure(data=[go.Candlestick(
     close=df['Close'],
     name="Candles"
 )])
+
+# --- Draw Wave 1 and Wave 3 Lines ---
+if wave1_high > 0:
+    try:
+        wave1_start_index = df.index[-20]
+        wave1_start_price = df['Low'].loc[wave1_start_index]
+        wave1_end_index = df[df['High'] >= wave1_high].index[0]
+
+        # Wave 1 Line
+        fig.add_shape(
+            type="line",
+            x0=wave1_start_index,
+            y0=wave1_start_price,
+            x1=wave1_end_index,
+            y1=wave1_high,
+            line=dict(color="deepskyblue", width=3, dash="dashdot"),
+        )
+
+        # Wave 3 Projection Line
+        trend = ""
+        last = df["Close"].iloc[-1].item()
+        prev = df["Close"].iloc[-2].item()
+        if last > prev:
+            trend = "Uptrend"
+        elif last < prev:
+            trend = "Downtrend"
+        else:
+            trend = "Sideways"
+
+        if trend == "Uptrend":
+            wave3_target = wave1_high + (wave1_high - wave1_start_price)
+            fig.add_shape(
+                type="line",
+                x0=wave1_end_index,
+                y0=wave1_high,
+                x1=df.index[-1],
+                y1=wave3_target,
+                line=dict(color="lime", width=2, dash="dot"),
+            )
+        elif trend == "Downtrend":
+            wave3_target = wave1_high - (wave1_high - wave1_start_price)
+            fig.add_shape(
+                type="line",
+                x0=wave1_end_index,
+                y0=wave1_high,
+                x1=df.index[-1],
+                y1=wave3_target,
+                line=dict(color="red", width=2, dash="dot"),
+            )
+
+        fig.add_trace(go.Scatter(
+            x=[wave1_start_index, wave1_end_index],
+            y=[wave1_start_price, wave1_high],
+            mode="markers+text",
+            text=["Wave 1 Start", "Wave 1 High"],
+            textposition="top center",
+            marker=dict(color="yellow", size=10, symbol="diamond")
+        ))
+
+    except Exception as e:
+        st.warning(f"⚠️ Error drawing wave lines: {e}")
+
+# --- Final Chart Setup ---
 fig.update_layout(
     xaxis_title="Time",
     yaxis_title="Price",
@@ -69,8 +141,7 @@ support, resistance = calculate_sr(df)
 st.write(f"🟢 **Support:** `{support}`")
 st.write(f"🔴 **Resistance:** `{resistance}`")
 
-# --- Elliott Wave Breakout ---
-wave1_high = st.number_input("🌊 Wave 1 High Price", value=0.0)
+# --- Elliott Wave Breakout Signal ---
 signal = "No Signal"
 last_price = df["Close"].iloc[-1].item()
 
@@ -80,7 +151,15 @@ if wave1_high > 0:
     elif trend == "Downtrend" and last_price < wave1_high:
         signal = "📉 Sell Signal (Wave 3 Breakdown)"
 
-st.subheader(f"📍 Signal: `{signal}`")
+# --- EMA Signal ---
+df['EMA10'] = df['Close'].ewm(span=10, adjust=False).mean()
+df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+if df['EMA10'].iloc[-1] > df['EMA20'].iloc[-1]:
+    signal = "📈 Buy"
+elif df['EMA10'].iloc[-1] < df['EMA20'].iloc[-1]:
+    signal = "📉 Sell"
+
+st.subheader(f"📊 EMA Signal: `{signal}`")
 
 # --- SL/TP Auto Calculation ---
 sl_auto = round(support if trend == "Uptrend" else resistance, 2)
