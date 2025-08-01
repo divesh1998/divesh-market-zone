@@ -1,215 +1,115 @@
-import streamlit as st
 import yfinance as yf
 import pandas as pd
+import streamlit as st
 from datetime import datetime
-from PIL import Image
 import os
-import plotly.graph_objs as go
+from PIL import Image
 
-# --- Page Setup ---
+# --- Page Config ---
 st.set_page_config(page_title="📈 Divesh Market Zone", layout="wide")
-st.title("💹 Divesh Market Zone")
+st.title("📈 Divesh Market Zone")
 
-# --- Select Symbol & Timeframe ---
-col1, col2 = st.columns(2)
-with col1:
-    symbol = st.selectbox("📊 Select Symbol", ["BTC-USD", "GC=F"], index=0)
-with col2:
-    interval = st.selectbox("⏱️ Timeframe", ["1h", "15m", "5m"])
+# --- Directory to save uploaded charts and trade reasons ---
+if not os.path.exists("saved_charts"):
+    os.makedirs("saved_charts")
 
-period = "5d"
+# --- Symbols and Timeframes ---
+symbols = {"Bitcoin (BTC)": "BTC-USD", "Gold (XAU)": "GC=F"}
+symbol = st.selectbox("Select Asset", list(symbols.keys()))
+symbol_yf = symbols[symbol]
+timeframes = {"1h": "1h", "15m": "15m", "5m": "5m"}
 
-# --- Download Live Data ---
-df = yf.download(symbol, interval=interval, period=period)
-if df.empty or len(df) < 2:
-    st.warning("⚠️ Not enough data to display chart.")
-    st.stop()
+# --- Fetch Data ---
+def get_data(symbol, interval, period='5d'):
+    df = yf.download(symbol, interval=interval, period=period)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.dropna(inplace=True)
+    return df
 
-# --- Show Live Market Price ---
-live_price = round(df["Close"].iloc[-1], 2)
-previous_price = round(df["Close"].iloc[-2], 2)
-change = live_price - previous_price
-percent_change = round((change / previous_price) * 100, 2)
-st.metric(label="📈 Live Market Price", value=f"${live_price}", delta=f"{percent_change}%")
+# --- Signal Generation ---
+def generate_signal(df):
+    df['EMA10'] = df['Close'].ewm(span=10).mean()
+    df['EMA20'] = df['Close'].ewm(span=20).mean()
+    df['Signal'] = 0
+    df.loc[df['EMA10'] > df['EMA20'], 'Signal'] = 1
+    df.loc[df['EMA10'] < df['EMA20'], 'Signal'] = -1
+    return df
 
-# --- Elliott Wave High Input ---
-wave1_high = st.number_input("🌊 Wave 1 High Price", value=0.0)
+# --- Accuracy Backtest ---
+def backtest_accuracy(df):
+    df['Return'] = df['Close'].pct_change().shift(-1)
+    df['StrategyReturn'] = df['Signal'].shift(1) * df['Return']
+    correct = df[df['StrategyReturn'] > 0]
+    total_signals = df[df['Signal'] != 0]
+    accuracy = len(correct) / len(total_signals) if len(total_signals) > 0 else 0
+    return round(accuracy * 100, 2)
 
-# --- Show Interactive Chart ---
-st.subheader("🕹️ Price Chart")
-fig = go.Figure(data=[go.Candlestick(
-    x=df.index,
-    open=df['Open'],
-    high=df['High'],
-    low=df['Low'],
-    close=df['Close'],
-    name="Candles"
-)])
-
-# --- Draw Wave 1 and Wave 3 Lines ---
-if wave1_high > 0:
-    try:
-        wave1_start_index = df.index[-20]
-        wave1_start_price = df['Low'].loc[wave1_start_index]
-        wave1_end_index = df[df['High'] >= wave1_high].index[0]
-
-        # Wave 1 Line
-        fig.add_shape(
-            type="line",
-            x0=wave1_start_index,
-            y0=wave1_start_price,
-            x1=wave1_end_index,
-            y1=wave1_high,
-            line=dict(color="deepskyblue", width=3, dash="dashdot"),
-        )
-
-        # Wave 3 Projection Line
-        trend = ""
-        last = df["Close"].iloc[-1].item()
-        prev = df["Close"].iloc[-2].item()
-        if last > prev:
-            trend = "Uptrend"
-        elif last < prev:
-            trend = "Downtrend"
-        else:
-            trend = "Sideways"
-
-        if trend == "Uptrend":
-            wave3_target = wave1_high + (wave1_high - wave1_start_price)
-            fig.add_shape(
-                type="line",
-                x0=wave1_end_index,
-                y0=wave1_high,
-                x1=df.index[-1],
-                y1=wave3_target,
-                line=dict(color="lime", width=2, dash="dot"),
-            )
-        elif trend == "Downtrend":
-            wave3_target = wave1_high - (wave1_high - wave1_start_price)
-            fig.add_shape(
-                type="line",
-                x0=wave1_end_index,
-                y0=wave1_high,
-                x1=df.index[-1],
-                y1=wave3_target,
-                line=dict(color="red", width=2, dash="dot"),
-            )
-
-        fig.add_trace(go.Scatter(
-            x=[wave1_start_index, wave1_end_index],
-            y=[wave1_start_price, wave1_high],
-            mode="markers+text",
-            text=["Wave 1 Start", "Wave 1 High"],
-            textposition="top center",
-            marker=dict(color="yellow", size=10, symbol="diamond")
-        ))
-
-    except Exception as e:
-        st.warning(f"⚠️ Error drawing wave lines: {e}")
-
-# --- Final Chart Setup ---
-fig.update_layout(
-    xaxis_title="Time",
-    yaxis_title="Price",
-    xaxis_rangeslider_visible=False,
-    template="plotly_dark",
-    height=500
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# --- Detect Trend ---
+# --- Trend Detection ---
 def detect_trend(df):
-    last = df["Close"].iloc[-1].item()
-    prev = df["Close"].iloc[-2].item()
-    if last > prev:
-        return "Uptrend"
-    elif last < prev:
-        return "Downtrend"
+    last = float(df["Close"].iloc[-1])
+    prev = float(df["Close"].iloc[-2])
+    return "Uptrend" if last > prev else "Downtrend"
+
+# --- SL/TP Generation ---
+def generate_sl_tp(price, signal, trend):
+    atr = 0.01 if trend == "Uptrend" else 0.02
+    if signal == 1:
+        sl = price * (1 - atr)
+        tp = price * (1 + atr)
+    elif signal == -1:
+        sl = price * (1 + atr)
+        tp = price * (1 - atr)
     else:
-        return "Sideways"
+        sl = tp = price
+    return round(sl, 2), round(tp, 2)
 
-trend = detect_trend(df)
-st.subheader(f"📉 Current Trend: `{trend}`")
+# --- Upload and Save Chart + Reason ---
+uploaded_image = st.file_uploader("📸 Upload Chart Image", type=["png", "jpg", "jpeg"])
+trade_reason = st.text_area("📝 Enter Trade Reason")
 
-# --- Support/Resistance Calculation ---
-def calculate_sr(data):
-    support = round(data["Low"].rolling(20).min().iloc[-1], 2)
-    resistance = round(data["High"].rolling(20).max().iloc[-1], 2)
-    return support, resistance
-
-support, resistance = calculate_sr(df)
-st.write(f"🟢 **Support:** `{support}`")
-st.write(f"🔴 **Resistance:** `{resistance}`")
-
-# --- Elliott Wave Breakout Signal ---
-signal = "No Signal"
-last_price = df["Close"].iloc[-1].item()
-
-if wave1_high > 0:
-    if trend == "Uptrend" and last_price > wave1_high:
-        signal = "📈 Buy Signal (Wave 3 Breakout)"
-    elif trend == "Downtrend" and last_price < wave1_high:
-        signal = "📉 Sell Signal (Wave 3 Breakdown)"
-
-# --- EMA Signal ---
-df['EMA10'] = df['Close'].ewm(span=10, adjust=False).mean()
-df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-if df['EMA10'].iloc[-1] > df['EMA20'].iloc[-1]:
-    signal = "📈 Buy"
-elif df['EMA10'].iloc[-1] < df['EMA20'].iloc[-1]:
-    signal = "📉 Sell"
-
-st.subheader(f"📊 EMA Signal: `{signal}`")
-
-# --- SL/TP Auto Calculation ---
-sl_auto = round(support if trend == "Uptrend" else resistance, 2)
-tp_auto = round(resistance if trend == "Uptrend" else support, 2)
-
-st.write(f"🛡️ **Auto SL:** `{sl_auto}`")
-st.write(f"🎯 **Auto TP:** `{tp_auto}`")
-
-# --- Trade Reason Input ---
-reason = st.text_area("📋 Trade Reason", placeholder="Enter your analysis or reason here...")
-
-# --- Upload Chart Image ---
-st.header("📤 Upload Chart Image")
-uploaded_image = st.file_uploader("Upload chart image (JPG/PNG)", type=["png", "jpg", "jpeg"])
-save_folder = "saved_charts"
-os.makedirs(save_folder, exist_ok=True)
-
-# --- Save Trade ---
-if st.button("💾 Save Trade"):
+if st.button("💾 Save Chart & Reason"):
     if uploaded_image is not None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{timestamp}_{symbol.replace('=', '').replace('-', '')}.png"
-        file_path = os.path.join(save_folder, filename)
-        with open(file_path, "wb") as f:
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_image.name}"
+        filepath = os.path.join("saved_charts", filename)
+        with open(filepath, "wb") as f:
             f.write(uploaded_image.read())
+        with open(filepath + ".txt", "w", encoding="utf-8") as f:
+            f.write(trade_reason)
+        st.success("✅ Chart and reason saved!")
 
-        # Save accompanying text
-        txt_path = file_path.replace(".png", ".txt")
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(f"Signal: {signal}\n")
-            f.write(f"SL: {sl_auto}\n")
-            f.write(f"TP: {tp_auto}\n")
-            f.write(f"Reason: {reason}")
+# --- Display Saved Charts + Reasons ---
+st.subheader("📁 Saved Charts")
+for file in os.listdir("saved_charts"):
+    if file.lower().endswith((".png", ".jpg", ".jpeg")):
+        st.image(os.path.join("saved_charts", file), width=400)
+        txt_file = os.path.join("saved_charts", file + ".txt")
+        if os.path.exists(txt_file):
+            with open(txt_file, "r", encoding="utf-8") as f:
+                reason = f.read()
+            st.write("📝 Reason:", reason)
 
-        st.success("✅ Trade saved successfully!")
-    else:
-        st.warning("⚠️ Please upload a chart image first.")
+# --- Multi-timeframe Signal Display ---
+for tf_name, tf in timeframes.items():
+    st.markdown("---")
+    st.subheader(f"🕒 Timeframe: {tf_name.upper()}")
+    df = get_data(symbol_yf, tf)
+    df = generate_signal(df)
+    acc = backtest_accuracy(df)
+    trend = detect_trend(df)
+    latest_signal = df['Signal'].iloc[-1]
+    signal_text = "Buy" if latest_signal == 1 else "Sell" if latest_signal == -1 else "No Signal"
+    price = df['Close'].iloc[-1]
+    sl, tp = generate_sl_tp(price, latest_signal, trend)
+    reward = tp - price
+    risk = price - sl if latest_signal == 1 else sl - price
+    rr_ratio = round(reward / risk, 2) if risk != 0 else "∞"
 
-# --- Display Saved Trades ---
-st.header("🗂️ Saved Trades")
-image_files = [f for f in os.listdir(save_folder) if f.endswith(".png")]
-for i in image_files:
-    st.image(os.path.join(save_folder, i), width=400, caption=i)
-    txt_file = i.replace(".png", ".txt")
-    txt_path = os.path.join(save_folder, txt_file)
-    if os.path.exists(txt_path):
-        with open(txt_path, "r", encoding="utf-8") as f:
-            st.code(f.read())
-    if st.button(f"🗑️ Delete {i}"):
-        os.remove(os.path.join(save_folder, i))
-        if os.path.exists(txt_path):
-            os.remove(txt_path)
-        st.rerun()
+    st.write(f"**Trend:** `{trend}`")
+    st.write(f"**Signal:** `{signal_text}`")
+    st.write(f"**Accuracy:** `{acc}%`")
+    st.write(f"**Entry Price:** `{round(price, 2)}`")
+    st.write(f"**SL:** `{sl}` | **TP:** `{tp}`")
+    st.write(f"📊 **Risk/Reward Ratio:** `{rr_ratio}`")
+    st.line_chart(df[['Close']])  # only Close line, no EMA
+
