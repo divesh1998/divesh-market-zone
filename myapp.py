@@ -4,12 +4,14 @@ import streamlit as st
 from datetime import datetime
 import os
 from PIL import Image
+import plotly.graph_objs as go
+import base64
 
 # --- Page Config ---
 st.set_page_config(page_title="📈 Divesh Market Zone", layout="wide")
 st.title("📈 Divesh Market Zone")
 
-# --- Directory to save uploaded charts and trade reasons ---
+# --- Directory Setup ---
 if not os.path.exists("saved_charts"):
     os.makedirs("saved_charts")
 
@@ -64,7 +66,7 @@ def generate_sl_tp(price, signal, trend):
         sl = tp = price
     return round(sl, 2), round(tp, 2)
 
-# --- Upload and Save Chart + Reason ---
+# --- Save Chart + Reason ---
 uploaded_image = st.file_uploader("📸 Upload Chart Image", type=["png", "jpg", "jpeg"])
 trade_reason = st.text_area("📝 Enter Trade Reason")
 
@@ -78,8 +80,9 @@ if st.button("💾 Save Chart & Reason"):
             f.write(trade_reason)
         st.success("✅ Chart and reason saved!")
 
-# --- Display Saved Charts + Reasons ---
+# --- Display Saved Charts + Reasons + Delete Option ---
 st.subheader("📁 Saved Charts")
+delete_files = []
 for file in os.listdir("saved_charts"):
     if file.lower().endswith((".png", ".jpg", ".jpeg")):
         st.image(os.path.join("saved_charts", file), width=400)
@@ -88,8 +91,14 @@ for file in os.listdir("saved_charts"):
             with open(txt_file, "r", encoding="utf-8") as f:
                 reason = f.read()
             st.write("📝 Reason:", reason)
+        if st.button(f"Delete {file}"):
+            os.remove(os.path.join("saved_charts", file))
+            if os.path.exists(txt_file):
+                os.remove(txt_file)
+            st.experimental_rerun()
 
 # --- Multi-timeframe Signal Display ---
+all_signals = []
 for tf_name, tf in timeframes.items():
     st.markdown("---")
     st.subheader(f"🕒 Timeframe: {tf_name.upper()}")
@@ -111,5 +120,29 @@ for tf_name, tf in timeframes.items():
     st.write(f"**Entry Price:** `{round(price, 2)}`")
     st.write(f"**SL:** `{sl}` | **TP:** `{tp}`")
     st.write(f"📊 **Risk/Reward Ratio:** `{rr_ratio}`")
-    st.line_chart(df[['Close']])  # only Close line, no EMA
 
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Candles'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA10'], line=dict(color='blue', width=1), name='EMA10'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='orange', width=1), name='EMA20'))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- Elliott Wave Breakout Basic Placeholder ---
+    # (Real logic should be complex)
+    if latest_signal == 1 and trend == "Uptrend":
+        st.success("🌀 Elliott Wave 3 Uptrend Breakout Detected!")
+    elif latest_signal == -1 and trend == "Downtrend":
+        st.error("🌀 Elliott Wave 3 Downtrend Breakout Detected!")
+
+    # --- Collect for CSV Export ---
+    all_signals.append({"Timeframe": tf_name, "Trend": trend, "Signal": signal_text, "Accuracy": acc,
+                        "Entry": round(price, 2), "SL": sl, "TP": tp, "RR Ratio": rr_ratio})
+
+# --- Export CSV ---
+st.markdown("---")
+st.subheader("📂 Export Trade History")
+if all_signals:
+    csv_df = pd.DataFrame(all_signals)
+    csv = csv_df.to_csv(index=False).encode("utf-8")
+    b64 = base64.b64encode(csv).decode()
+    st.download_button("🔧 Download CSV", csv, "trade_history.csv", "text/csv")
