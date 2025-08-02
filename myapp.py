@@ -3,16 +3,28 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 import os
+import uuid
+import html
+import time
 from PIL import Image
 
+# --- Page Setup ---
 st.set_page_config(page_title="📈 Divesh Market Zone", layout="wide")
 st.title("📈 Divesh Market Zone")
 
-# Create save folder
-if not os.path.exists("saved_charts"):
-    os.makedirs("saved_charts")
+# --- Safe folder creation ---
+SAVE_DIR = "saved_charts"
+if not os.path.exists(SAVE_DIR):
+    os.makedirs(SAVE_DIR)
 
-# Assets
+# --- Clean up old files (older than 7 days) ---
+now = time.time()
+for file in os.listdir(SAVE_DIR):
+    path = os.path.join(SAVE_DIR, file)
+    if os.path.isfile(path) and os.stat(path).st_mtime < now - 7 * 86400:
+        os.remove(path)
+
+# --- Asset selection ---
 symbols = {"Bitcoin (BTC)": "BTC-USD", "Gold (XAU)": "GC=F"}
 symbol = st.selectbox("Select Asset", list(symbols.keys()))
 symbol_yf = symbols[symbol]
@@ -30,7 +42,7 @@ def get_data(symbol, interval, period='5d'):
 def detect_trend(df):
     return "Uptrend" if df["Close"].iloc[-1] > df["Close"].iloc[-2] else "Downtrend"
 
-# --- Signal Generator (trend filtered) ---
+# --- Signal Generator ---
 def generate_signal(df):
     df['EMA10'] = df['Close'].ewm(span=10).mean()
     df['EMA20'] = df['Close'].ewm(span=20).mean()
@@ -44,22 +56,21 @@ def generate_signal(df):
 
     return df
 
-# --- SL/TP ---
+# --- SL/TP Calculation ---
 def generate_sl_tp(price, signal, trend):
     atr = 0.015 if trend == "Uptrend" else 0.02
-    rr = 2.0  # fixed R:R ratio
-
-    if signal == 1:  # Buy
+    rr = 2.0
+    if signal == 1:
         sl = price * (1 - atr)
         tp = price + (price - sl) * rr
-    elif signal == -1:  # Sell
+    elif signal == -1:
         sl = price * (1 + atr)
         tp = price - (sl - price) * rr
     else:
         sl = tp = price
     return round(sl, 2), round(tp, 2)
 
-# --- Accuracy ---
+# --- Backtest Accuracy ---
 def backtest_accuracy(df):
     df['Return'] = df['Close'].pct_change().shift(-1)
     df['StrategyReturn'] = df['Signal'].shift(1) * df['Return']
@@ -67,11 +78,10 @@ def backtest_accuracy(df):
     correct = df[df['StrategyReturn'] > 0]
     return round(len(correct) / len(total) * 100, 2) if len(total) else 0
 
-# --- Elliott Wave Logic ---
+# --- Elliott Wave Breakout Logic ---
 def detect_elliott_wave_breakout(df):
     if len(df) < 6:
         return False, ""
-    wave1_start = df['Low'].iloc[-6]
     wave1_end = df['High'].iloc[-5]
     wave2 = df['Low'].iloc[-4]
     current_price = df['Close'].iloc[-1]
@@ -83,32 +93,45 @@ def detect_elliott_wave_breakout(df):
         return True, "🌀 Elliott Wave 3 Downtrend Breakout Detected!"
     return False, ""
 
-# --- Upload chart image ---
+# --- Chart Upload ---
 uploaded_image = st.file_uploader("📸 Upload Chart", type=["png", "jpg", "jpeg"])
 trade_reason = st.text_area("📝 Enter Trade Reason")
 
 if st.button("💾 Save Chart & Reason"):
     if uploaded_image is not None:
-        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_image.name}"
-        filepath = os.path.join("saved_charts", filename)
+        # --- File Size Limit Check (3MB) ---
+        if uploaded_image.size > 3 * 1024 * 1024:
+            st.error("🚫 File too large! Max size: 3MB")
+            st.stop()
+
+        # --- Generate Secure Random Filename ---
+        ext = uploaded_image.name.split('.')[-1]
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
+        filepath = os.path.join(SAVE_DIR, filename)
+
+        # --- Save Chart Image ---
         with open(filepath, "wb") as f:
             f.write(uploaded_image.read())
+
+        # --- Save Sanitized Trade Reason ---
+        safe_reason = html.escape(trade_reason)
         with open(filepath + ".txt", "w", encoding="utf-8") as f:
-            f.write(trade_reason)
+            f.write(safe_reason)
+
         st.success("✅ Chart and Reason Saved!")
 
-# --- Show saved charts ---
+# --- Display Saved Charts ---
 st.subheader("📁 Saved Charts")
-for file in os.listdir("saved_charts"):
+for file in sorted(os.listdir(SAVE_DIR), reverse=True):
     if file.lower().endswith((".png", ".jpg", ".jpeg")):
-        st.image(os.path.join("saved_charts", file), width=350)
-        txt_file = os.path.join("saved_charts", file + ".txt")
+        st.image(os.path.join(SAVE_DIR, file), width=350)
+        txt_file = os.path.join(SAVE_DIR, file + ".txt")
         if os.path.exists(txt_file):
             with open(txt_file, "r", encoding="utf-8") as f:
                 reason = f.read()
             st.caption(f"📝 Reason: {reason}")
 
-# --- Multi-timeframe Analysis ---
+# --- Multi-Timeframe Analysis ---
 for tf_label, tf_code in timeframes.items():
     st.markdown("---")
     st.subheader(f"🕒 Timeframe: {tf_label}")
