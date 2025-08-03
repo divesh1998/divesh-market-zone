@@ -48,8 +48,8 @@ def generate_signal(df):
     return df
 
 def detect_support_resistance(df, window=20):
-    support = df['Low'][::-1].rolling(window=window).min().dropna().iloc[-1]
-    resistance = df['High'][::-1].rolling(window=window).max().dropna().iloc[-1]
+    support = df['Low'].rolling(window=window).min().iloc[-1]
+    resistance = df['High'].rolling(window=window).max().iloc[-1]
     return round(support, 2), round(resistance, 2)
 
 def is_sideways(price, support, resistance, threshold=0.01):
@@ -102,6 +102,7 @@ def detect_elliott_wave_breakout(df):
         return True, "🌀 Elliott Wave 3 Downtrend Breakout Detected!"
     return False, ""
 
+# Chart upload + Reason input
 uploaded_image = st.file_uploader("📸 Upload Chart", type=["png", "jpg", "jpeg"])
 trade_reason = st.text_area("📝 Enter Trade Reason")
 
@@ -120,6 +121,7 @@ if st.button("💾 Save Chart & Reason"):
             f.write(safe_reason)
         st.success("✅ Chart and Reason Saved!")
 
+# Display Saved Charts
 st.subheader("📁 Saved Charts")
 for file in sorted(os.listdir(SAVE_DIR), reverse=True):
     if file.lower().endswith((".png", ".jpg", ".jpeg")):
@@ -130,6 +132,7 @@ for file in sorted(os.listdir(SAVE_DIR), reverse=True):
                 reason = f.read()
             st.caption(f"📝 Reason: {reason}")
 
+# Timeframe Loop
 for tf_label, tf_code in timeframes.items():
     st.markdown("---")
     st.subheader(f"🕒 Timeframe: {tf_label}")
