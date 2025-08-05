@@ -16,6 +16,10 @@ if not os.path.exists("saved_charts"):
 symbols = {
     "Bitcoin (BTC)": "BTC-USD",
     "Gold (XAU)": "GC=F",
+    "NIFTY 50": "^NSEI",
+    "Reliance": "RELIANCE.NS",
+    "TCS": "TCS.NS",
+    "Infosys": "INFY.NS"
 }
 symbol = st.selectbox("Select Asset", list(symbols.keys()))
 symbol_yf = symbols[symbol]
@@ -191,12 +195,11 @@ for file in os.listdir("saved_charts"):
                 reason = f.read()
             st.caption(f"📜 Reason: {reason}")
 
-
 # --- Multi-Timeframe Analysis ---
 for tf_label, tf_code in timeframes.items():
     st.markdown("---")
     st.subheader(f"🕒 Timeframe: {tf_label}")
-    
+
     df = get_data(symbol_yf, tf_code)
     trend = detect_trend(df)
     df = generate_signals(df)
@@ -242,14 +245,11 @@ for tf_label, tf_code in timeframes.items():
     else:
         st.warning(f"⚠️ **Sideways / Neutral Market**\nConfidence Score: {conf_score}/5")
 
-    # 🔕 HIDDEN: Reason display
-    # st.markdown(f"🧠 **Why this score?**\n- {conf_reason}")
-
     # --- Accuracy Over Time ---
     acc_df = accuracy_over_days(df)
     st.line_chart(acc_df.set_index("Date"))
-    st.line_chart(df[['Close']])
 
     st.markdown("### 📈 Profit Probability Estimate")
-    st.info(f"📘 **EMA Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`")
+    st.info(f"📘 **EMA Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`)"
+    )
     st.success(f"🔮 **Elliott + PA Strategy Profit Chance:** `{acc_epa}%` | Loss: `{100 - acc_epa}%`")
