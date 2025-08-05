@@ -15,11 +15,7 @@ if not os.path.exists("saved_charts"):
 # --- Symbols ---
 symbols = {
     "Bitcoin (BTC)": "BTC-USD",
-    "Gold (XAU)": "GC=F",
-    "NIFTY 50": "^NSEI",
-    "Reliance": "RELIANCE.NS",
-    "TCS": "TCS.NS",
-    "Infosys": "INFY.NS"
+    "Gold (XAU)": "GC=F"
 }
 symbol = st.selectbox("Select Asset", list(symbols.keys()))
 symbol_yf = symbols[symbol]
@@ -247,9 +243,10 @@ for tf_label, tf_code in timeframes.items():
 
     # --- Accuracy Over Time ---
     acc_df = accuracy_over_days(df)
-    st.line_chart(acc_df.set_index("Date"))
+    #st.line_chart(acc_df.set_index("Date"))
 
     st.markdown("### 📈 Profit Probability Estimate")
     st.info(f"📘 **EMA Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`)"
     )
     st.success(f"🔮 **Elliott + PA Strategy Profit Chance:** `{acc_epa}%` | Loss: `{100 - acc_epa}%`")
+
