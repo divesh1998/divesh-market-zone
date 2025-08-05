@@ -199,8 +199,17 @@ for tf_label, tf_code in timeframes.items():
     df = get_data(symbol_yf, tf_code)
     trend = detect_trend(df)
     df = generate_signals(df)
-    signal = df["Signal"].iloc[-1]
-    price = round(df["Close"].iloc[-1], 2)
+
+    # Find latest signal candle
+    if not df[df["Signal"] != 0].empty:
+        signal_index = df[df["Signal"] != 0].index[-1]
+        signal = df.loc[signal_index, "Signal"]
+        price = round(df.loc[signal_index, "Close"], 2)
+    else:
+        signal_index = df.index[-1]
+        signal = 0
+        price = round(df["Close"].iloc[-1], 2)
+
     sl, tp = generate_sl_tp(price, signal, trend)
     reward = abs(tp - price)
     risk = abs(price - sl)
@@ -224,7 +233,7 @@ for tf_label, tf_code in timeframes.items():
     # --- Detect Patterns (hidden from UI) ---
     patterns = detect_price_action(df)
 
-    # --- Strategy Score Calculation (internal use only) ---
+    # --- Strategy Score Calculation ---
     row = {
         "Bullish Engulfing": any("Bullish Engulfing" in p[1] for p in patterns),
         "Bearish Engulfing": any("Bearish Engulfing" in p[1] for p in patterns),
@@ -246,7 +255,5 @@ for tf_label, tf_code in timeframes.items():
     #st.line_chart(acc_df.set_index("Date"))
 
     st.markdown("### 📈 Profit Probability Estimate")
-    st.info(f"📘 **EMA Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`)"
-    )
+    st.info(f"📘 **EMA Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`")
     st.success(f"🔮 **Elliott + PA Strategy Profit Chance:** `{acc_epa}%` | Loss: `{100 - acc_epa}%`")
-
