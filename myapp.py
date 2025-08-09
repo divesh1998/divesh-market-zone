@@ -19,7 +19,7 @@ symbols = {
 }
 symbol = st.selectbox("Select Asset", list(symbols.keys()))
 symbol_yf = symbols[symbol]
-timeframes = {"1H": "1h", "15M": "15m", "5M": "5m"}
+timeframes = {"4H": "4h", "1H": "1h", "15M": "15m", "5M": "5m"}
 
 # --- Data Fetch ---
 def get_data(symbol, interval, period='7d'):
@@ -27,6 +27,17 @@ def get_data(symbol, interval, period='7d'):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df.dropna(inplace=True)
+    return df
+
+# --- RSI Calculation ---
+def calculate_rsi(df, period=14):
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
     return df
 
 # --- Trend Detection ---
@@ -77,16 +88,24 @@ def detect_elliott_wave_breakout(df):
         return True, "🌀 Elliott Wave 3 Downtrend Breakout Detected!"
     return False, ""
 
-# --- Signal Generator ---
+# --- Signal Generator with RSI Filter ---
 def generate_signals(df):
     df['EMA20'] = df['Close'].ewm(span=20).mean()
     df['EMA50'] = df['Close'].ewm(span=50).mean()
+    df = calculate_rsi(df)  # Add RSI calculation
+
     df['Signal'] = 0
     trend = detect_trend(df)
+
     if trend == "Uptrend":
         df.loc[df['EMA20'] > df['EMA50'], 'Signal'] = 1
     elif trend == "Downtrend":
         df.loc[df['EMA20'] < df['EMA50'], 'Signal'] = -1
+
+    # --- RSI Filter ---
+    df.loc[(df['Signal'] == 1) & (df['RSI'] < 50), 'Signal'] = 0
+    df.loc[(df['Signal'] == -1) & (df['RSI'] > 50), 'Signal'] = 0
+
     return df
 
 # --- SL/TP ---
@@ -129,12 +148,18 @@ def backtest_strategy_accuracy(df, use_elliott=False, use_price_action=False):
     df = df.copy()
     df['EMA20'] = df['Close'].ewm(span=20).mean()
     df['EMA50'] = df['Close'].ewm(span=50).mean()
+    df = calculate_rsi(df)
     df['Signal'] = 0
     trend = detect_trend(df)
     if trend == "Uptrend":
         df.loc[df['EMA20'] > df['EMA50'], 'Signal'] = 1
     elif trend == "Downtrend":
         df.loc[df['EMA20'] < df['EMA50'], 'Signal'] = -1
+
+    # Apply RSI filter
+    df.loc[(df['Signal'] == 1) & (df['RSI'] < 50), 'Signal'] = 0
+    df.loc[(df['Signal'] == -1) & (df['RSI'] > 50), 'Signal'] = 0
+
     if use_elliott:
         breakout, _ = detect_elliott_wave_breakout(df)
         if not breakout:
@@ -159,6 +184,9 @@ def accuracy_over_days(df):
     df['Signal'] = 0
     df.loc[df['EMA20'] > df['EMA50'], 'Signal'] = 1
     df.loc[df['EMA20'] < df['EMA50'], 'Signal'] = -1
+    df = calculate_rsi(df)
+    df.loc[(df['Signal'] == 1) & (df['RSI'] < 50), 'Signal'] = 0
+    df.loc[(df['Signal'] == -1) & (df['RSI'] > 50), 'Signal'] = 0
     df['Return'] = df['Close'].pct_change().shift(-1)
     df['StrategyReturn'] = df['Signal'].shift(1) * df['Return']
     accuracy_df = df.groupby('Date').apply(
@@ -205,10 +233,12 @@ for tf_label, tf_code in timeframes.items():
         signal_index = df[df["Signal"] != 0].index[-1]
         signal = df.loc[signal_index, "Signal"]
         price = round(df.loc[signal_index, "Close"], 2)
+        rsi_value = round(df.loc[signal_index, "RSI"], 2)
     else:
         signal_index = df.index[-1]
         signal = 0
         price = round(df["Close"].iloc[-1], 2)
+        rsi_value = round(df["RSI"].iloc[-1], 2)
 
     sl, tp = generate_sl_tp(price, signal, trend)
     reward = abs(tp - price)
@@ -219,9 +249,9 @@ for tf_label, tf_code in timeframes.items():
     acc_epa = backtest_strategy_accuracy(df, use_elliott=True, use_price_action=True)
 
     st.write(f"**Trend:** `{trend}`")
-    st.write(f"**Signal:** `{signal_text}`")
-    st.metric("📘 Only EMA Accuracy", f"{acc_ema}%")
-    st.metric("🔮 Elliott + Price Action Accuracy", f"{acc_epa}%")
+    st.write(f"**Signal:** `{signal_text}` | **RSI:** `{rsi_value}`")
+    st.metric("📘 Only EMA+RSI Accuracy", f"{acc_ema}%")
+    st.metric("🔮 Elliott + Price Action + RSI Accuracy", f"{acc_epa}%")
     st.write(f"**Entry Price:** `{price}` | **SL:** `{sl}` | **TP:** `{tp}`")
     st.write(f"📊 **Risk/Reward Ratio:** `{rr_ratio}`")
 
@@ -252,8 +282,8 @@ for tf_label, tf_code in timeframes.items():
 
     # --- Accuracy Over Time ---
     acc_df = accuracy_over_days(df)
-    #st.line_chart(acc_df.set_index("Date"))
+    # st.line_chart(acc_df.set_index("Date"))
 
     st.markdown("### 📈 Profit Probability Estimate")
-    st.info(f"📘 **EMA Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`")
-    st.success(f"🔮 **Elliott + PA Strategy Profit Chance:** `{acc_epa}%` | Loss: `{100 - acc_epa}%`")
+    st.info(f"📘 **EMA+RSI Strategy Profit Chance:** `{acc_ema}%` | Loss: `{100 - acc_ema}%`")
+    st.success(f"🔮 **Elliott + PA + RSI Strategy Profit Chance:** `{acc_epa}%` | Loss: `{100 - acc_epa}%`")
