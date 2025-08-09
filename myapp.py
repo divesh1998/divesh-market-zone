@@ -20,11 +20,11 @@ symbols = {
 symbol = st.selectbox("Select Asset", list(symbols.keys()))
 symbol_yf = symbols[symbol]
 timeframes = {
-    "4H": "4h",
     "1H": "1h",
     "15M": "15m",
     "5M": "5m"
 }
+
 
 # --- Data Fetch ---
 def get_data(symbol, interval, period='30d'):
