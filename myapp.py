@@ -15,8 +15,7 @@ if not os.path.exists("saved_charts"):
 # --- Symbols ---
 symbols = {
     "Bitcoin (BTC)": "BTC-USD",
-    "Gold (XAU)": "GC=F"
-    "Bank Nifty": "NSEBANK",
+  "Gold (XAU)": "GC=F",
 }
 symbol = st.selectbox("Select Asset", list(symbols.keys()))
 symbol_yf = symbols[symbol]
@@ -184,4 +183,5 @@ for tf_label, tf_code in timeframes.items():
     st.markdown("### 📈 Profit Probability Estimate")
     st.info(f"📘 **EMA+RSI Strategy Profit Chance:** `{acc_ema_rsi}%` | Loss: `{100 - acc_ema_rsi}%`")
     st.success(f"🔮 **Elliott+PA+RSI Strategy Profit Chance:** `{acc_epa_rsi}%` | Loss: `{100 - acc_epa_rsi}%`")
+
 
